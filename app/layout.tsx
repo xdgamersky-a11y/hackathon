@@ -1,6 +1,9 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Noto_Sans_Thai } from 'next/font/google'
 import './globals.css'
+
+const notoSansThai = Noto_Sans_Thai({ subsets: ['thai', 'latin'], display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'Gen-Century Plan | 100-Year Life Simulator',
@@ -40,7 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">
+      <body className={`${notoSansThai.className} antialiased`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
