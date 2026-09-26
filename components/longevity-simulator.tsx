@@ -32,6 +32,7 @@ import {
   type ChartOptions,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { CenturyAiAdvisor } from '@/components/century-ai-advisor'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
@@ -40,10 +41,16 @@ type Language = 'en' | 'th'
 type Inputs = {
   age: number
   savings: number
-  monthly: number
+  emergencyFund: number
+  monthlyExpenses: number
+  investmentAllocation: number
+  debtBalance: number
+  monthlyDebtPayment: number
+  annualIncomeGrowth: number
   retirementAge: number
   occupation: string
-  monthlyIncome: number
+  baseSalary: number
+  sideIncome: number
   incomeGoal: number
   health: 'excellent' | 'average' | 'at-risk'
   personality: 'aggressive' | 'balanced' | 'conservative' | 'impulse' | 'health-conscious'
@@ -52,16 +59,39 @@ type Inputs = {
 const initialInputs: Inputs = {
   age: 25,
   savings: 100_000,
-  monthly: 10_000,
+  emergencyFund: 60_000,
+  monthlyExpenses: 25_000,
+  investmentAllocation: 12_000,
+  debtBalance: 180_000,
+  monthlyDebtPayment: 8_000,
+  annualIncomeGrowth: 4,
   retirementAge: 60,
-  occupation: 'Tech & Engineering',
-  monthlyIncome: 60_000,
+  occupation: 'Tech & AI Specialist',
+  baseSalary: 60_000,
+  sideIncome: 5_000,
   incomeGoal: 100_000,
   health: 'average',
   personality: 'balanced',
 }
 
+const occupationOptions = [
+  { label: 'Tech & AI Specialist', thai: 'ผู้เชี่ยวชาญเทคโนโลยีและ AI' },
+  { label: 'Corporate & Business Manager', thai: 'ผู้จัดการองค์กรและธุรกิจ' },
+  { label: 'Healthcare & Medical Professional', thai: 'บุคลากรด้านสุขภาพและการแพทย์' },
+  { label: 'Creative, Media & Content Creator', thai: 'งานสร้างสรรค์ สื่อ และคอนเทนต์' },
+  { label: 'Government Officer & Civil Servant', thai: 'เจ้าหน้าที่รัฐและข้าราชการ' },
+  { label: 'Business Owner / SME Entrepreneur', thai: 'เจ้าของธุรกิจ / ผู้ประกอบการ SME' },
+  { label: 'Freelance & Gig Economy Worker', thai: 'ฟรีแลนซ์และผู้ทำงานแพลตฟอร์ม' },
+  { label: 'Skilled Trades & Engineering', thai: 'ช่างฝีมือและวิศวกรรม' },
+  { label: 'Educator & Academic Researcher', thai: 'นักการศึกษาและนักวิจัย' },
+  { label: 'Student / Early-Career Starter', thai: 'นักเรียน / ผู้เริ่มต้นอาชีพ' },
+]
+
 const healthCosts = { excellent: 24_000, average: 72_000, 'at-risk': 216_000 } as const
+const expectedInvestmentReturn = 0.06
+const expectedDebtInterest = 0.08
+const expectedInflation = 0.025
+const medicalInflation = 0.05
 const savingsLeakage = { aggressive: 0.02, balanced: 0.04, conservative: 0.03, impulse: 0.18, 'health-conscious': 0.06 } as const
 const habitScores = { aggressive: 88, balanced: 84, conservative: 90, impulse: 42, 'health-conscious': 82 } as const
 const currency = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
@@ -128,6 +158,48 @@ function InputSlider({
   )
 }
 
+function NumberField({
+  id,
+  label,
+  value,
+  min = 0,
+  max,
+  step = 1_000,
+  suffix,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: number
+  min?: number
+  max?: number
+  step?: number
+  suffix: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className="text-xs font-medium leading-4 text-slate-300">{label}</label>
+      <div className="flex items-center gap-2 rounded-xl border border-white/[0.1] bg-[#111f31] px-3 transition-colors focus-within:border-cyan-300/60 focus-within:ring-2 focus-within:ring-cyan-300/20">
+        <input
+          id={id}
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => {
+            const nextValue = Number(event.target.value)
+            if (Number.isFinite(nextValue)) onChange(Math.max(min, max === undefined ? nextValue : Math.min(max, nextValue)))
+          }}
+          className="min-w-0 flex-1 bg-transparent py-2.5 text-sm tabular-nums text-white outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="shrink-0 text-[10px] text-slate-500">{suffix}</span>
+      </div>
+    </div>
+  )
+}
+
 function MetricCard({
   label,
   value,
@@ -166,7 +238,9 @@ export function LongevitySimulator() {
   const [analysisRunning, setAnalysisRunning] = useState(false)
   const [analysisComplete, setAnalysisComplete] = useState(false)
   const t = (english: string, thai: string) => tx(language, english, thai)
-  const occupationName = t(inputs.occupation, inputs.occupation === 'Tech & Engineering' ? 'เทคโนโลยีและวิศวกรรม' : inputs.occupation === 'Business & Finance' ? 'ธุรกิจและการเงิน' : inputs.occupation === 'Healthcare' ? 'สาธารณสุข' : inputs.occupation === 'Creative & Media' ? 'งานสร้างสรรค์และสื่อ' : inputs.occupation === 'Freelance/Gig' ? 'ฟรีแลนซ์ / งานอิสระ' : inputs.occupation === 'Student' ? 'นักเรียน / นักศึกษา' : 'ภาครัฐ')
+  const totalMonthlyIncome = inputs.baseSalary + inputs.sideIncome
+  const occupation = occupationOptions.find((option) => option.label === inputs.occupation) ?? occupationOptions[0]
+  const occupationName = t(occupation.label, occupation.thai)
   const updateInput = <Key extends keyof Inputs>(key: Key, value: Inputs[Key]) => {
     setAnalysisComplete(false)
     setInputs((current) => ({ ...current, [key]: value }))
@@ -182,25 +256,65 @@ export function LongevitySimulator() {
   const projection = useMemo(() => {
     const years = Math.max(0, 100 - inputs.age)
     const labels = Array.from({ length: years + 1 }, (_, index) => inputs.age + index)
-    const monthlyLeakage = inputs.monthly * savingsLeakage[inputs.personality]
-    const effectiveMonthlySavings = inputs.monthly - monthlyLeakage
-    const nominal = [inputs.savings]
-    const baseline = [inputs.savings]
-    let cumulativeMedicalCosts = 0
-    let medicalCostsTo80 = 0
-    let habitLeakageImpact = 0
+    const lifestyleLeakage = savingsLeakage[inputs.personality]
+    const monthlyInvestmentReturn = Math.pow(1 + expectedInvestmentReturn, 1 / 12) - 1
+    const monthlyDebtInterest = Math.pow(1 + expectedDebtInterest, 1 / 12) - 1
+    const monthlyIncomeGrowth = Math.pow(1 + inputs.annualIncomeGrowth / 100, 1 / 12) - 1
+    const monthlyInflation = Math.pow(1 + expectedInflation, 1 / 12) - 1
 
-    for (let year = 1; year <= years; year += 1) {
-      const age = inputs.age + year
-      const medicalCost = age >= 60 ? healthCosts[inputs.health] * Math.pow(1.05, age - 60) : 0
-      cumulativeMedicalCosts += medicalCost
-      if (age <= 80) medicalCostsTo80 += medicalCost
-      habitLeakageImpact = habitLeakageImpact * 1.06 + monthlyLeakage * 12
-      baseline.push(baseline[year - 1] * 1.06 + effectiveMonthlySavings * 12)
-      nominal.push(Math.max(0, nominal[year - 1] * 1.06 + effectiveMonthlySavings * 12 - medicalCost))
+    const simulate = (includeMedicalCosts: boolean) => {
+      let investmentBalance = inputs.savings
+      let cashBalance = inputs.emergencyFund
+      let debtBalance = inputs.debtBalance
+      let cumulativeMedicalCosts = 0
+      let medicalCostsTo80 = 0
+      let habitLeakageImpact = 0
+      const wealth = [investmentBalance + cashBalance - debtBalance]
+
+      for (let month = 1; month <= years * 12; month += 1) {
+        const age = inputs.age + month / 12
+        const income = age <= inputs.retirementAge
+          ? (inputs.baseSalary + inputs.sideIncome) * Math.pow(1 + monthlyIncomeGrowth, month - 1)
+          : 0
+        const monthlyLivingExpenses = inputs.monthlyExpenses * Math.pow(1 + monthlyInflation, month)
+        const medicalCost = includeMedicalCosts && age >= 60
+          ? (healthCosts[inputs.health] * Math.pow(1 + medicalInflation, age - 60)) / 12
+          : 0
+
+        investmentBalance *= 1 + monthlyInvestmentReturn
+        debtBalance *= 1 + monthlyDebtInterest
+        cumulativeMedicalCosts += medicalCost
+        if (age <= 80) medicalCostsTo80 += medicalCost
+
+        const incomeAfterCosts = income - monthlyLivingExpenses - medicalCost
+        const availableForDebtPayment = Math.max(0, incomeAfterCosts) + cashBalance + investmentBalance
+        const debtPayment = Math.min(debtBalance, inputs.monthlyDebtPayment, availableForDebtPayment)
+        debtBalance -= debtPayment
+
+        const investmentContribution = Math.min(inputs.investmentAllocation, Math.max(0, incomeAfterCosts - debtPayment))
+        const investedAfterLeakage = investmentContribution * (1 - lifestyleLeakage)
+        investmentBalance += investedAfterLeakage
+        habitLeakageImpact = habitLeakageImpact * (1 + expectedInvestmentReturn) + investmentContribution * lifestyleLeakage
+
+        cashBalance += incomeAfterCosts - debtPayment - investmentContribution
+        if (cashBalance < 0) {
+          const shortfall = -cashBalance
+          const portfolioWithdrawal = Math.min(investmentBalance, shortfall)
+          investmentBalance -= portfolioWithdrawal
+          cashBalance = 0
+          debtBalance += shortfall - portfolioWithdrawal
+        }
+
+        if (month % 12 === 0) wealth.push(investmentBalance + cashBalance - debtBalance)
+      }
+
+      return { wealth, cumulativeMedicalCosts, medicalCostsTo80, habitLeakageImpact }
     }
 
-    const real = nominal.map((amount, index) => amount / Math.pow(1.025, index))
+    const withHealthcare = simulate(true)
+    const withoutHealthcare = simulate(false)
+    const nominal = withHealthcare.wealth
+    const real = nominal.map((amount, index) => amount / Math.pow(1 + expectedInflation, index))
     const retirementIndex = Math.min(Math.max(0, inputs.retirementAge - inputs.age), years)
     const age80Index = Math.min(Math.max(0, 80 - inputs.age), years)
     const finalIndex = nominal.length - 1
@@ -216,19 +330,21 @@ export function LongevitySimulator() {
       age80: nominal[age80Index],
       age80Real: real[age80Index],
       yearsToRetirement: retirementIndex,
-      cumulativeMedicalCosts,
-      medicalCostsTo80,
-      habitLeakageImpact,
-      wealthRetention: baseline[finalIndex] > 0 ? Math.round((nominal[finalIndex] / baseline[finalIndex]) * 100) : 0,
+      cumulativeMedicalCosts: withHealthcare.cumulativeMedicalCosts,
+      medicalCostsTo80: withHealthcare.medicalCostsTo80,
+      habitLeakageImpact: withHealthcare.habitLeakageImpact,
+      wealthRetention: withoutHealthcare.wealth[finalIndex] > 0
+        ? Math.round((nominal[finalIndex] / withoutHealthcare.wealth[finalIndex]) * 100)
+        : 0,
       healthScore,
     }
   }, [inputs])
 
-  const incomeGap = inputs.incomeGoal - inputs.monthlyIncome
+  const incomeGap = inputs.incomeGoal - totalMonthlyIncome
   const habitScore = habitScores[inputs.personality]
   const lifestyleLeakage = savingsLeakage[inputs.personality]
   const profileStrategies = [
-    inputs.monthlyIncome < inputs.incomeGoal
+    totalMonthlyIncome < inputs.incomeGoal
       ? t(`Set a quarterly income milestone in ${occupationName.toLowerCase()} and direct half of each raise toward your target.`, `ตั้งเป้าหมายรายได้ทุกไตรมาสในสายงาน${occupationName} และนำรายได้ที่เพิ่มขึ้นครึ่งหนึ่งไปสู่เป้าหมายของคุณ`)
       : t(`Protect your ${occupationName.toLowerCase()} income with a six-month reserve and schedule an annual compensation review.`, `รักษาความมั่นคงของรายได้ในสายงาน${occupationName} ด้วยเงินสำรอง 6 เดือน และทบทวนค่าตอบแทนทุกปี`),
     inputs.health === 'at-risk'
@@ -314,17 +430,20 @@ export function LongevitySimulator() {
           padding: 12,
           font: { size: 10 },
           callback: (value) => {
-            const amount = Number(value)
-            return amount >= 1_000_000 ? t(`THB ${(amount / 1_000_000).toFixed(0)}m`, `${(amount / 1_000_000).toFixed(0)} ล้านบาท`) : t(`THB ${Math.round(amount / 1_000)}k`, `${Math.round(amount / 1_000)} พันบาท`)
+          const amount = Number(value)
+          return Math.abs(amount) >= 1_000_000
+            ? t(`THB ${(amount / 1_000_000).toFixed(0)}m`, `${(amount / 1_000_000).toFixed(0)} ล้านบาท`)
+            : t(`THB ${Math.round(amount / 1_000)}k`, `${Math.round(amount / 1_000)} พันบาท`)
+
           },
         },
       },
     },
   }), [language])
 
-  const monthlyTarget = Math.max(0, inputs.savings * 0.05)
-  const recommendation = inputs.monthly < monthlyTarget
-    ? t(`You’re saving ${money(inputs.monthly, language)} each month. Increasing that by ${money(monthlyTarget - inputs.monthly, language)} could strengthen your long-term security. Small, consistent steps have a powerful effect over ${projection.yearsToRetirement} years.`, `คุณออมเงิน ${money(inputs.monthly, language)} ต่อเดือน การเพิ่มเงินออมอีก ${money(monthlyTarget - inputs.monthly, language)} จะช่วยเสริมความมั่นคงในระยะยาว การออมอย่างสม่ำเสมอแม้ทีละน้อยส่งผลดีได้ตลอด ${projection.yearsToRetirement} ปี`)
+  const monthlyTarget = totalMonthlyIncome * 0.2
+  const recommendation = inputs.investmentAllocation < monthlyTarget
+    ? t(`You’re investing ${money(inputs.investmentAllocation, language)} each month. Increasing that by ${money(monthlyTarget - inputs.investmentAllocation, language)} could strengthen your long-term security. Small, consistent steps have a powerful effect over ${projection.yearsToRetirement} years.`, `คุณลงทุน ${money(inputs.investmentAllocation, language)} ต่อเดือน การเพิ่มเงินลงทุนอีก ${money(monthlyTarget - inputs.investmentAllocation, language)} จะช่วยเสริมความมั่นคงในระยะยาว การลงทุนอย่างสม่ำเสมอแม้ทีละน้อยส่งผลดีได้ตลอด ${projection.yearsToRetirement} ปี`)
     : t(`Your monthly savings are building a strong foundation. With ${projection.yearsToRetirement} years until your target retirement, consider a yearly review to keep your plan aligned with the life you want to live.`, `เงินออมรายเดือนของคุณกำลังสร้างรากฐานที่มั่นคง อีก ${projection.yearsToRetirement} ปีก่อนถึงวัยเกษียณที่ตั้งเป้าหมายไว้ ลองทบทวนแผนทุกปีเพื่อให้สอดคล้องกับชีวิตที่คุณต้องการ`)
 
   return (
@@ -382,6 +501,7 @@ export function LongevitySimulator() {
         </div>
 
         <div className="grid items-start gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-5">
           <section className="rounded-2xl border border-white/[0.08] bg-[#0b1727]/85 p-5 shadow-[0_14px_50px_rgba(0,0,0,0.12)] sm:p-6" aria-labelledby="inputs-heading">
             <div className="flex items-center justify-between">
               <div><h2 id="inputs-heading" className="text-base font-semibold text-white">{t('Your starting point', 'ข้อมูลตั้งต้นของคุณ')}</h2><p className="mt-1 text-xs text-slate-500">{t('Adjust your plan in real time', 'ปรับแผนของคุณได้ทันที')}</p></div>
@@ -401,20 +521,26 @@ export function LongevitySimulator() {
             <div className="mt-7 flex min-h-[350px] flex-col gap-7">
               {profileStep === 0 && <>
                 <InputSlider label={t('Current age', 'อายุปัจจุบัน')} icon={CircleDollarSign} value={inputs.age} min={18} max={65} step={1} suffix={t('years', 'ปี')} onChange={(value) => updateInput('age', Math.min(value, inputs.retirementAge - 1))} />
-                <InputSlider label={t('Current savings', 'เงินออมปัจจุบัน')} icon={Wallet} value={inputs.savings} min={0} max={5_000_000} step={10_000} suffix={t('THB', 'บาท')} format={(value) => currency.format(value)} onChange={(value) => updateInput('savings', value)} />
-                <InputSlider label={t('Monthly savings', 'เงินออมต่อเดือน')} icon={TrendingUp} value={inputs.monthly} min={0} max={100_000} step={1_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('monthly', value)} />
+                <NumberField id="current-savings" label={t('Current savings & investments', 'เงินออมและเงินลงทุนปัจจุบัน')} value={inputs.savings} max={100_000_000} suffix={t('THB', 'บาท')} onChange={(value) => updateInput('savings', value)} />
+                <NumberField id="emergency-fund" label={t('Emergency fund balance', 'ยอดเงินสำรองฉุกเฉิน')} value={inputs.emergencyFund} max={100_000_000} suffix={t('THB', 'บาท')} onChange={(value) => updateInput('emergencyFund', value)} />
+                <NumberField id="fixed-living-expenses" label={t('Fixed living expenses', 'ค่าใช้จ่ายประจำต่อเดือน')} value={inputs.monthlyExpenses} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('monthlyExpenses', value)} />
+                <NumberField id="monthly-investment-allocation" label={t('Monthly investment allocation', 'เงินลงทุนต่อเดือน')} value={inputs.investmentAllocation} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('investmentAllocation', value)} />
+                <NumberField id="current-total-debt" label={t('Current total debt / loans', 'ยอดหนี้ / เงินกู้ปัจจุบัน')} value={inputs.debtBalance} max={100_000_000} suffix={t('THB', 'บาท')} onChange={(value) => updateInput('debtBalance', value)} />
+                <NumberField id="monthly-debt-repayment" label={t('Monthly debt repayment', 'ยอดชำระหนี้ต่อเดือน')} value={inputs.monthlyDebtPayment} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('monthlyDebtPayment', value)} />
+                <NumberField id="annual-income-growth" label={t('Expected annual income growth rate', 'อัตราการเติบโตของรายได้ต่อปี')} value={inputs.annualIncomeGrowth} max={20} step={0.1} suffix="% / year" onChange={(value) => updateInput('annualIncomeGrowth', value)} />
                 <InputSlider label={t('Retirement target age', 'อายุเป้าหมายเกษียณ')} icon={BriefcaseBusiness} value={inputs.retirementAge} min={Math.max(30, inputs.age + 1)} max={75} step={1} suffix={t('years', 'ปี')} onChange={(value) => updateInput('retirementAge', value)} />
               </>}
               {profileStep === 1 && <>
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-300">
                   <span className="flex items-center gap-2"><BriefcaseBusiness className="size-4 text-slate-500" aria-hidden="true" />{t('Occupation / career track', 'อาชีพ / สายงาน')}</span>
                   <select value={inputs.occupation} onChange={(event) => updateInput('occupation', event.target.value)} className="rounded-xl border border-white/[0.1] bg-[#111f31] px-3 py-3 text-sm text-white outline-none focus-visible:border-cyan-300/60 focus-visible:ring-2 focus-visible:ring-cyan-300/20">
-                    {['Tech & Engineering', 'Business & Finance', 'Healthcare', 'Creative & Media', 'Freelance/Gig', 'Student', 'Government'].map((occupation) => <option key={occupation} value={occupation}>{t(occupation, occupation === 'Tech & Engineering' ? 'เทคโนโลยีและวิศวกรรม' : occupation === 'Business & Finance' ? 'ธุรกิจและการเงิน' : occupation === 'Healthcare' ? 'สาธารณสุข' : occupation === 'Creative & Media' ? 'งานสร้างสรรค์และสื่อ' : occupation === 'Freelance/Gig' ? 'ฟรีแลนซ์ / งานอิสระ' : occupation === 'Student' ? 'นักเรียน / นักศึกษา' : 'ภาครัฐ')}</option>)}
+                    {occupationOptions.map((option) => <option key={option.label} value={option.label}>{t(option.label, option.thai)}</option>)}
                   </select>
                 </label>
-                <InputSlider label={t('Current monthly income', 'รายได้ต่อเดือนปัจจุบัน')} icon={Wallet} value={inputs.monthlyIncome} min={0} max={500_000} step={5_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('monthlyIncome', value)} />
-                <InputSlider label={t('Target monthly income goal', 'เป้าหมายรายได้ต่อเดือน')} icon={TrendingUp} value={inputs.incomeGoal} min={0} max={1_000_000} step={10_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('incomeGoal', value)} />
-                <p className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.035] p-3 text-xs leading-5 text-slate-400">{t('Your income goal gap appears in the analysis after you run your profile.', 'ระบบจะแสดงช่องว่างระหว่างรายได้และเป้าหมายหลังจากวิเคราะห์โปรไฟล์')}</p>
+                <NumberField id="base-salary" label={t('Base salary', 'เงินเดือนประจำ')} value={inputs.baseSalary} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('baseSalary', value)} />
+                <NumberField id="side-hustle-income" label={t('Side hustle / freelance income', 'รายได้เสริมหรือฟรีแลนซ์')} value={inputs.sideIncome} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('sideIncome', value)} />
+                <NumberField id="monthly-income-goal" label={t('Target monthly income goal', 'เป้าหมายรายได้ต่อเดือน')} value={inputs.incomeGoal} max={2_000_000} suffix={t('THB / mo', 'บาท / เดือน')} onChange={(value) => updateInput('incomeGoal', value)} />
+                <p className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.035] p-3 text-xs leading-5 text-slate-400">{t('Combined income and your annual growth assumption feed directly into the 100-year projection.', 'รายได้รวมและสมมติฐานการเติบโตต่อปีจะถูกนำไปคำนวณในการประมาณการ 100 ปีโดยตรง')}</p>
               </>}
               {profileStep === 2 && <>
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-300">
@@ -441,12 +567,15 @@ export function LongevitySimulator() {
             <div className="mt-6 flex items-center justify-between border-t border-white/[0.07] pt-4">
               <button type="button" disabled={profileStep === 0} onClick={() => setProfileStep((step) => Math.max(0, step - 1))} className="rounded-lg px-3 py-2 text-xs font-medium text-slate-400 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-30">{t('Back', 'ย้อนกลับ')}</button>
               <span className="text-[10px] text-slate-600">{t(`Step ${profileStep + 1} of 3`, `ขั้นตอนที่ ${profileStep + 1} จาก 3`)}</span>
-              <button type="button" disabled={profileStep === 2} onClick={() => setProfileStep((step) => Math.min(2, step + 1))} className="inline-flex items-center gap-1 rounded-lg bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-30">{t('Next', 'ถัดไป')}<ChevronRight className="size-3.5" aria-hidden="true" /></button>
+              <button type="button" disabled={profileStep === 2} onClick={() => setProfileStep((step) => Math.min(2, step + 1))} className="inline-flex items-center gap-1 rounded-lg bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-30">{t('Next', '���ัดไป')}<ChevronRight className="size-3.5" aria-hidden="true" /></button>
             </div>
-            <div className="mt-5 flex items-start gap-2.5 border-t border-white/[0.07] pt-4 text-[11px] leading-5 text-slate-500"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-400/70" aria-hidden="true" /><p>{t('Illustrative estimate assumes 6% annual growth and 2.5% inflation. At-risk healthcare costs rise 5% annually after age 60. This is not financial advice.', 'ตัวเลขประมาณการสมมติผลตอบแทนเติบโต 6% ต่อปี เงินเฟ้อ 2.5% และค่ารักษาพยาบาลกรณีมีความเสี่ยงเพิ่มขึ้น 5% ต่อปีหลังอายุ 60 ปี ไม่ใช่คำแนะนำทางการเงิน')}</p></div>
+            <div className="mt-5 flex items-start gap-2.5 border-t border-white/[0.07] pt-4 text-[11px] leading-5 text-slate-500"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-400/70" aria-hidden="true" /><p>{t('Illustrative model: 6% annual investment return, 8% debt interest, 2.5% living-cost inflation, and 5% medical inflation. Income growth follows your assumption; earned income stops at retirement age, and no pension is assumed. Not financial advice.', 'แบบจำลองประกอบการศึกษา: ผลตอบแทนการลงทุน 6% ต่อปี ดอกเบี้ยหนี้ 8% เงินเฟ้อค่าครองชีพ 2.5% และเงินเฟ้อค่ารักษา 5% การเติบโตของรายได้ใช้ตามสมมติฐานที่เลือก รายได้จากการทำงานหยุดเมื่อถึงอายุเกษียณและไม่ได้สมมติรายได้จากเงินบำนาญ ไม่ใช่คำแนะนำทางการเงิน')}</p></div>
           </section>
+          </div>
 
           <div className="min-w-0 space-y-5">
+            <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="min-w-0 space-y-5">
             <section className="rounded-2xl border border-white/[0.08] bg-[#0b1727]/85 p-5 shadow-[0_14px_50px_rgba(0,0,0,0.12)] sm:p-6" aria-labelledby="projection-heading">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div><h2 id="projection-heading" className="text-base font-semibold text-white">{t('Your 100-year wealth journey', 'เส้นทางความมั่งคั่งตลอด 100 ปี')}</h2><p className="mt-1 text-xs text-slate-500">{t('A long view, built one month at a time', 'มองภาพระยะยาว วางแผนทีละเดือน')}</p></div>
@@ -463,6 +592,9 @@ export function LongevitySimulator() {
               <MetricCard label={t('Wealth at retirement', 'ความมั่งคั่งเมื่อเกษียณ')} value={money(projection.retirement, language)} detail={t(`At age ${inputs.retirementAge} · ${projection.yearsToRetirement} years from now`, `เมื่ออายุ ${inputs.retirementAge} · อีก ${projection.yearsToRetirement} ปี`)} icon={TrendingUp} />
               <MetricCard label={t('Wealth at age 80', 'ความมั่งคั่งเมื่ออายุ 80 ปี')} value={money(projection.age80, language)} detail={t(`${money(projection.age80Real, language)} in today’s money`, `${money(projection.age80Real, language)} ในมูลค่าเงินปัจจุบัน`)} icon={Wallet} tone="violet" />
               <MetricCard label={t('Inflation loss impact', 'ผลกระทบจากเงินเฟ้อ')} value={money(projection.age80 - projection.age80Real, language)} detail={t('Purchasing power difference at age 80', 'ส่วนต่างของกำลังซื้อเมื่ออายุ 80 ปี')} icon={ArrowDownRight} tone="amber" />
+            </div>
+              </div>
+              <CenturyAiAdvisor career={inputs.occupation} health={inputs.health} debt={inputs.debtBalance} monthlyDebtPayment={inputs.monthlyDebtPayment} language={language} />
             </div>
             <section className="mt-5 space-y-4" aria-labelledby="deep-analysis-heading" aria-busy={analysisRunning}>
               <div className="flex flex-col justify-between gap-3 rounded-2xl border border-cyan-300/15 bg-gradient-to-r from-cyan-300/[0.06] via-[#0b1727] to-violet-300/[0.07] p-4 sm:flex-row sm:items-center sm:px-5">
@@ -481,7 +613,7 @@ export function LongevitySimulator() {
                   <div className="flex items-center gap-2 text-cyan-200"><span className="grid size-8 place-items-center rounded-lg bg-cyan-300/10"><TrendingUp className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('Income vs Goal Gap Analysis', 'วิเคราะห์ช่องว่างรายได้กับเป้าหมาย')}</h3></div>
                   <p className="mt-5 text-[10px] font-medium uppercase tracking-wider text-slate-500">{t('Monthly income gap', 'ช่องว่างรายได้ต่อเดือน')}</p>
                   <p className="mt-1 text-2xl font-semibold tracking-tight text-white">{analysisComplete ? money(Math.max(0, incomeGap), language) : '—'}</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? incomeGap > 0 ? t(`Current ${money(inputs.monthlyIncome, language)} · goal ${money(inputs.incomeGoal, language)}`, `ปัจจุบัน ${money(inputs.monthlyIncome, language)} · เป้าหมาย ${money(inputs.incomeGoal, language)}`) : t('You have reached or exceeded your monthly income goal.', 'คุณบรรลุหรือมีรายได้ถึงเป้าหมายต่อเดือนแล้ว') : t('Run the analysis to calculate your income-to-goal gap.', 'เริ่มวิเคราะห์เพื่อคำนวณช่องว่างระหว่างรายได้กับเป้าหมาย')}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? incomeGap > 0 ? t(`Current ${money(totalMonthlyIncome, language)} · goal ${money(inputs.incomeGoal, language)}`, `ปัจจุบัน ${money(totalMonthlyIncome, language)} · เป้าหมาย ${money(inputs.incomeGoal, language)}`) : t('You have reached or exceeded your monthly income goal.', 'คุณบรรลุหรือมีรายได้ถึงเป้าหมายต่อเดือนแล้ว') : t('Run the analysis to calculate your income-to-goal gap.', 'เริ่มวิเคราะห์เพื่อคำนวณช่องว่างระหว่างรายได้กับเป��าหมาย')}</p>
                   <p className="mt-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">{t('Career track', 'สายอาชีพ')}: <span className="text-slate-300">{occupationName}</span></p>
                 </article>
                 <article className="rounded-2xl border border-rose-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
@@ -495,7 +627,7 @@ export function LongevitySimulator() {
                   <div className="flex items-center gap-2 text-violet-200"><span className="grid size-8 place-items-center rounded-lg bg-violet-300/10"><Wallet className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('Habit Score & Wealth Leakage', 'คะแนนพฤติกรรมและเงินออมที่รั่วไหล')}</h3></div>
                   <p className="mt-5 text-[10px] font-medium uppercase tracking-wider text-slate-500">{t('Financial habit score', 'คะแนนพฤติกรรมทางการเงิน')}</p>
                   <p className="mt-1 text-2xl font-semibold tracking-tight text-white">{analysisComplete ? `${habitScore} / 100` : '—'}</p>
-                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? t(`Modeled savings leakage: ${Math.round(lifestyleLeakage * 100)}% of monthly savings`, `จำลองเงินออมที่รั่วไหล: ${Math.round(lifestyleLeakage * 100)}% ของเงินออมรายเดือน`) : t('Run the analysis to score your financial habits.', 'เริ่มวิเคราะห์เพื่อประเมินพฤติกรรมทางการเงิน')}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? t(`Modeled savings leakage: ${Math.round(lifestyleLeakage * 100)}% of monthly investment allocation`, `จำลองเงินลงทุนที่รั่วไหล: ${Math.round(lifestyleLeakage * 100)}% ของเงินลงทุนรายเดือน`) : t('Run the analysis to score your financial habits.', 'เริ่มวิเคราะห์เพื่อประเมินพฤติกรรมทางการเงิน')}</p>
                   <p className="mt-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">{t('Potential wealth impact by age 100', 'ผลกระทบต่อความมั่งคั่งที่อาจเกิดขึ้นเมื่ออายุ 100 ปี')}: <span className="font-semibold text-violet-200">{analysisComplete ? money(projection.habitLeakageImpact, language) : '—'}</span></p>
                 </article>
                 <article className="rounded-2xl border border-amber-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
