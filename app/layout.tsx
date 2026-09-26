@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Gen-Century Plan | 100-Year Life Simulator',
+  description: 'Explore a personalized 100-year financial and longevity plan with interactive wealth projections.',
   generator: 'v0.app',
   icons: {
     icon: [
