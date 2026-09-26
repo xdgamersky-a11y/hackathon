@@ -30,6 +30,7 @@ export const defaultRatesToThb: FxRatesToThb = {
 export type FxRatesResponse = {
   date: string
   ratesToThb: FxRatesToThb
+  source?: 'frankfurter' | 'fallback'
 }
 
 export function formatMoney(
@@ -71,7 +72,8 @@ export function toThb(valueInSelectedCurrency: number, selectedCurrency: Currenc
 }
 
 export function currencyUnit(code: CurrencyCode, monthly = false) {
-  return `${code}${monthly ? ' / mo' : ''}`
+  const currency = currencies.find((item) => item.code === code)!
+  return `${currency.symbol}${monthly ? ' / mo' : ''}`
 }
 
 export function formatAxisMoney(valueInThb: number, selectedCurrency: CurrencyCode, ratesToThb: FxRatesToThb, language: 'en' | 'th') {
@@ -159,7 +161,7 @@ export function getCurrencyDisplayLabel(code: CurrencyCode) {
 }
 
 export function fallbackFxResponse(): FxRatesResponse {
-  return { date: '', ratesToThb: createFallbackFxRates() }
+  return { date: '', ratesToThb: createFallbackFxRates(), source: 'fallback' }
 }
 
 export function mergeFxRates(response: FxRatesResponse | undefined): FxRatesToThb {
@@ -213,13 +215,19 @@ export function getCurrencyOptionLabel(code: CurrencyCode) {
   return `${currency.flag} · ${currency.code} · ${currency.symbol} · ${currency.name}`
 }
 
-export function getCurrencyStatusLabel(language: 'en' | 'th', isLoading: boolean, hasError: boolean, date?: string) {
+export function getCurrencyStatusLabel(
+  language: 'en' | 'th',
+  isLoading: boolean,
+  hasError: boolean,
+  date?: string,
+  source?: FxRatesResponse['source'],
+) {
   if (language === 'th') {
-    if (hasError) return 'ใช้อัตราอ้างอิงสำรอง · ฟีดไม่พร้อมใช้งาน'
-    if (isLoading) return 'กำลังซิงก์อัตราแลกเปลี่ยนรายวัน'
-    return date ? `อัปเดตล่าสุด ${date}` : 'อัตราอ้างอิงสำรองพร้อมใช้งาน'
+    if (hasError || source === 'fallback') return 'ใช้อัตราอ้างอิงสำรอง · ฟีดตลาดไม่พร้อมใช้งาน'
+    if (isLoading) return 'กำลังซิงก์อัตราอ้างอิงรายวัน · ใช้อัตราสำรองชั่วคราว'
+    return date ? `ซิงก์ล่าสุด ${date}` : 'อัตราอ้างอิงสำรองพร้อมใช้งาน'
   }
-  if (hasError) return 'Reference rates active · live feed unavailable'
-  if (isLoading) return 'Syncing daily reference rates'
+  if (hasError || source === 'fallback') return 'Configured reference rates active · live feed unavailable'
+  if (isLoading) return 'Syncing daily market rates · configured rates active meanwhile'
   return date ? `Last synced ${date}` : 'Configured reference rates active'
 }

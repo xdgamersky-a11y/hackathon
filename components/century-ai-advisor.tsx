@@ -6,16 +6,20 @@ import { MessageScroller } from '@shadcn/react/message-scroller'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Marker, MarkerContent } from '@/components/ui/marker'
 import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/components/ui/message'
+import { formatMoney } from '@/lib/currencies'
+import type { CurrencyCode, FxRatesToThb } from '@/lib/currencies'
 
 type Language = 'en' | 'th'
 type HealthStatus = 'excellent' | 'average' | 'at-risk'
-type ChatMessage = { id: string; role: 'assistant' | 'user'; text: string }
+type ChatMessage = { id: string; role: 'assistant' | 'user'; text: string; question?: string }
 
 type CenturyAiAdvisorProps = {
   career: string
   health: HealthStatus
   debt: number
   monthlyDebtPayment: number
+  currencyCode: CurrencyCode
+  ratesToThb: FxRatesToThb
   language: Language
 }
 
@@ -25,15 +29,9 @@ const quickPrompts = [
   { en: 'How to hedge against medical inflation?', th: 'รับมือเงินเฟ้อค่ารักษาพยาบาลอย่างไร?' },
 ]
 
-const money = (amount: number, language: Language) =>
-  new Intl.NumberFormat(language === 'th' ? 'th-TH' : 'en-US', {
-    style: 'currency',
-    currency: 'THB',
-    maximumFractionDigits: 0,
-  }).format(amount)
-
 function createAdvisorReply(question: string, context: CenturyAiAdvisorProps) {
   const isThai = context.language === 'th'
+  const money = (amount: number) => formatMoney(amount, context.currencyCode, context.ratesToThb, context.language)
   const normalizedQuestion = question.toLowerCase()
   const asksAboutDebt = /debt|loan|repay|หนี้|เงินกู้|ชำระ/.test(normalizedQuestion)
   const asksAboutSkills = /skill|career|job|work|ทักษะ|อาชีพ|งาน/.test(normalizedQuestion)
@@ -49,8 +47,8 @@ function createAdvisorReply(question: string, context: CenturyAiAdvisorProps) {
         : `Your profile currently shows no debt balance. Keep an emergency reserve before increasing investments, and review your credit regularly. Your ${context.career} career and ${healthLabel} health status still matter when choosing a comfortable reserve.`
     }
     return isThai
-      ? `คุณระบุหนี้ ${money(context.debt, 'th')} และยอดชำระ ${money(context.monthlyDebtPayment, 'th')} ต่อเดือน ลองตรวจสอบ APR และค่าธรรมเนียมของหนี้แต่ละก้อน จ่ายขั้นต่ำให้ครบ แล้วพิจารณาเร่งจ่ายหนี้ดอกเบี้ยสูงก่อน โดยยังรักษาเงินสำรองที่เหมาะกับค่าใช้จ่ายจำเป็นไว้ รายได้จากสายงาน ${context.career} และสุขภาพ${healthLabel} อาจทำให้ระดับเงินสำรองที่สบายใจแตกต่างกัน`
-      : `You reported ${money(context.debt, 'en')} in debt and a ${money(context.monthlyDebtPayment, 'en')} monthly repayment. Compare each balance’s APR and fees, cover all minimums, then consider prioritizing the highest-cost debt while keeping a reserve for essential expenses. Your ${context.career} income pattern and ${healthLabel} health status may change how large a reserve feels comfortable.`
+      ? `คุณระบุหนี้ ${money(context.debt)} และยอดชำระ ${money(context.monthlyDebtPayment)} ต่อเดือน ลองตรวจสอบ APR และค่าธรรมเนียมของหนี้แต่ละก้อน จ่ายขั้นต่ำให้ครบ แล้วพิจารณาเร่งจ่ายหนี้ดอกเบี้ยสูงก่อน โดยยังรักษาเงินสำรองที่เหมาะกับค่าใช้จ่ายจำเป็นไว้ รายได้จากสายงาน ${context.career} และสุขภาพ${healthLabel} อาจทำให้ระดับเงินสำรองที่สบายใจแตกต่างกัน`
+      : `You reported ${money(context.debt)} in debt and a ${money(context.monthlyDebtPayment)} monthly repayment. Compare each balance’s APR and fees, cover all minimums, then consider prioritizing the highest-cost debt while keeping a reserve for essential expenses. Your ${context.career} income pattern and ${healthLabel} health status may change how large a reserve feels comfortable.`
   }
 
   if (asksAboutSkills) {
@@ -68,22 +66,22 @@ function createAdvisorReply(question: string, context: CenturyAiAdvisorProps) {
     }
     const skills = skillMap[context.career] ?? 'digital literacy, communication, and practical problem solving'
     return isThai
-      ? `สำหรับเส้นทาง ${context.career} ลองต่อยอดด้าน AI governance, data literacy, การสื่อสาร และการสร้างผลงานที่แสดงผลลัพธ์จริง เลือกทักษะหนึ่งด้านมาทดลองทำโปรเจกต์ภายใน 90 วัน โดยคำนึงถึงสุขภาพ${healthLabel}และภาระหนี้ ${money(context.debt, 'th')} ไปพร้อมกัน`
-      : `For ${context.career}, build depth in ${skills}. Pick one skill and demonstrate it in a small portfolio project over the next 90 days. Keep the plan realistic alongside your ${healthLabel} health status and ${money(context.debt, 'en')} reported debt.`
+      ? `สำหรับเส้นทาง ${context.career} ลองต่อยอดด้าน AI governance, data literacy, การสื่อสาร และการสร้างผลงานที่แสดงผลลัพธ์จริง เลือกทักษะหนึ่งด้านมาทดลองทำโปรเจกต์ภายใน 90 วัน โดยคำนึงถึงสุขภาพ${healthLabel}และภาระหนี้ ${money(context.debt)} ไปพร้อมกัน`
+      : `For ${context.career}, build depth in ${skills}. Pick one skill and demonstrate it in a small portfolio project over the next 90 days. Keep the plan realistic alongside your ${healthLabel} health status and ${money(context.debt)} reported debt.`
   }
 
   if (asksAboutHealthcare) {
     return isThai
-      ? `สุขภาพของคุณอยู่ในสถานะ${healthLabel} ลองทบทวนสิทธิประกันสุขภาพ ข้อยกเว้น ความคุ้มครองผู้ป่วยนอกและผู้ป่วยในทุกปี แยกเงินสำรองค่ารักษาจากเงินลงทุน และทดสอบแผนด้วยค่าใช้จ่ายที่เพิ่มขึ้น อย่าลืมพิจารณารายได้จากอาชีพ ${context.career} และภาระหนี้ ${money(context.debt, 'th')} ก่อนกำหนดจำนวนเงินสำรอง`
-      : `With your ${healthLabel} health status, review coverage limits, exclusions, and outpatient versus inpatient benefits each year. Keep a medical reserve separate from long-term investments and stress-test it against rising costs. Factor in your ${context.career} income and ${money(context.debt, 'en')} reported debt before choosing a reserve target.`
+      ? `สุขภาพของคุณอยู่ในสถานะ${healthLabel} ลองทบทวนสิทธิประกันสุขภาพ ข้อยกเว้น ความคุ้มครองผู้ป่วยนอกและผู้ป่วยในทุกปี แยกเงินสำรองค่ารักษาจากเงินลงทุน และทดสอบแผนด้วยค่าใช้จ่ายที่เพิ่มขึ้น อย่าลืมพิจารณารายได้จากอาชีพ ${context.career} และภาระหนี้ ${money(context.debt)} ก่อนกำหนดจำนวนเงินสำรอง`
+      : `With your ${healthLabel} health status, review coverage limits, exclusions, and outpatient versus inpatient benefits each year. Keep a medical reserve separate from long-term investments and stress-test it against rising costs. Factor in your ${context.career} income and ${money(context.debt)} reported debt before choosing a reserve target.`
   }
 
   return isThai
-    ? `ฉันใช้โปรไฟล์จำลองของคุณ—อาชีพ ${context.career}, สุขภาพ${healthLabel}, หนี้ ${money(context.debt, 'th')}—เพื่อช่วยจัดกรอบคำถาม ลองเริ่มจากหนี้ เงินสำรองสุขภาพ หรือทักษะอาชีพที่อยากวางแผน แล้วตรวจสอบสมมติฐานกับผู้เชี่ยวชาญที่ได้รับใบอนุญาต`
-    : `I’m using your simulated profile—${context.career}, ${healthLabel} health status, and ${money(context.debt, 'en')} reported debt—to frame the discussion. Ask about debt, healthcare reserves, or future career skills, and verify any assumptions with a qualified professional.`
+    ? `ฉันใช้โปรไฟล์จำลองของคุณ—���าชีพ ${context.career}, สุขภาพ${healthLabel}, หนี้ ${money(context.debt)}—เพื่อช่วยจัดกรอบคำถาม ลองเริ่มจากหนี้ เงินสำรองสุขภาพ หรือทักษะอาชีพที่อยากวางแผน แล้วตรวจสอบสมมติฐานกับผู้เชี่ยวชาญที่ได้รับใบอนุญาต`
+    : `I’m using your simulated profile—${context.career}, ${healthLabel} health status, and ${money(context.debt)} reported debt—to frame the discussion. Ask about debt, healthcare reserves, or future career skills, and verify any assumptions with a qualified professional.`
 }
 
-export function CenturyAiAdvisor({ career, health, debt, monthlyDebtPayment, language }: CenturyAiAdvisorProps) {
+export function CenturyAiAdvisor({ career, health, debt, monthlyDebtPayment, currencyCode, ratesToThb, language }: CenturyAiAdvisorProps) {
   const isThai = language === 'th'
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -102,11 +100,12 @@ export function CenturyAiAdvisor({ career, health, debt, monthlyDebtPayment, lan
     if (!trimmedQuestion) return
     messageCounter.current += 1
     const messageId = String(messageCounter.current)
-    const response = createAdvisorReply(trimmedQuestion, { career, health, debt, monthlyDebtPayment, language })
+    const context = { career, health, debt, monthlyDebtPayment, currencyCode, ratesToThb, language }
+    const response = createAdvisorReply(trimmedQuestion, context)
     setMessages((current) => [
       ...current,
       { id: `user-${messageId}`, role: 'user', text: trimmedQuestion },
-      { id: `advisor-${messageId}`, role: 'assistant', text: response },
+      { id: `advisor-${messageId}`, role: 'assistant', text: response, question: trimmedQuestion },
     ])
     setDraft('')
   }
@@ -176,7 +175,9 @@ export function CenturyAiAdvisor({ career, health, debt, monthlyDebtPayment, lan
                         </MessageHeader>
                         <Bubble align={message.role === 'user' ? 'end' : 'start'} variant={message.role === 'user' ? 'tinted' : 'muted'} className="max-w-full">
                           <BubbleContent className={`px-3 py-2 text-[11px] leading-5 ${message.role === 'user' ? 'border border-violet-300/10 bg-violet-300/10 text-violet-50' : 'border border-white/[0.06] bg-[#142338] text-slate-200'}`}>
-                            {message.text}
+                            {message.role === 'assistant' && message.question
+                              ? createAdvisorReply(message.question, { career, health, debt, monthlyDebtPayment, currencyCode, ratesToThb, language })
+                              : message.text}
                           </BubbleContent>
                         </Bubble>
                       </MessageContent>
