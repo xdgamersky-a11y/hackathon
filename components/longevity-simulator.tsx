@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import {
+  Activity,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
@@ -12,6 +13,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Fingerprint,
+  LoaderCircle,
   LockKeyhole,
   ShieldCheck,
   Sparkles,
@@ -40,9 +42,28 @@ type Inputs = {
   savings: number
   monthly: number
   retirementAge: number
+  occupation: string
+  monthlyIncome: number
+  incomeGoal: number
+  health: 'excellent' | 'average' | 'at-risk'
+  personality: 'aggressive' | 'balanced' | 'conservative' | 'impulse' | 'health-conscious'
 }
 
-const initialInputs: Inputs = { age: 25, savings: 100_000, monthly: 10_000, retirementAge: 60 }
+const initialInputs: Inputs = {
+  age: 25,
+  savings: 100_000,
+  monthly: 10_000,
+  retirementAge: 60,
+  occupation: 'Tech & Engineering',
+  monthlyIncome: 60_000,
+  incomeGoal: 100_000,
+  health: 'average',
+  personality: 'balanced',
+}
+
+const healthCosts = { excellent: 24_000, average: 72_000, 'at-risk': 216_000 } as const
+const savingsLeakage = { aggressive: 0.02, balanced: 0.04, conservative: 0.03, impulse: 0.18, 'health-conscious': 0.06 } as const
+const habitScores = { aggressive: 88, balanced: 84, conservative: 90, impulse: 42, 'health-conscious': 82 } as const
 const currency = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
 const tx = (language: Language, english: string, thai: string) => language === 'th' ? thai : english
 
@@ -141,19 +162,52 @@ export function LongevitySimulator() {
   const [inputs, setInputs] = useState(initialInputs)
   const [verified, setVerified] = useState(false)
   const [language, setLanguage] = useState<Language>('en')
+  const [profileStep, setProfileStep] = useState(0)
+  const [analysisRunning, setAnalysisRunning] = useState(false)
+  const [analysisComplete, setAnalysisComplete] = useState(false)
   const t = (english: string, thai: string) => tx(language, english, thai)
-  const update = (key: keyof Inputs, value: number) => setInputs((current) => ({ ...current, [key]: value }))
+  const occupationName = t(inputs.occupation, inputs.occupation === 'Tech & Engineering' ? 'เทคโนโลยีและวิศวกรรม' : inputs.occupation === 'Business & Finance' ? 'ธุรกิจและการเงิน' : inputs.occupation === 'Healthcare' ? 'สาธารณสุข' : inputs.occupation === 'Creative & Media' ? 'งานสร้างสรรค์และสื่อ' : inputs.occupation === 'Freelance/Gig' ? 'ฟรีแลนซ์ / งานอิสระ' : inputs.occupation === 'Student' ? 'นักเรียน / นักศึกษา' : 'ภาครัฐ')
+  const updateInput = <Key extends keyof Inputs>(key: Key, value: Inputs[Key]) => {
+    setAnalysisComplete(false)
+    setInputs((current) => ({ ...current, [key]: value }))
+  }
+  const runAnalysis = () => {
+    setAnalysisRunning(true)
+    window.setTimeout(() => {
+      setAnalysisComplete(true)
+      setAnalysisRunning(false)
+    }, 800)
+  }
 
   const projection = useMemo(() => {
     const years = Math.max(0, 100 - inputs.age)
     const labels = Array.from({ length: years + 1 }, (_, index) => inputs.age + index)
+    const monthlyLeakage = inputs.monthly * savingsLeakage[inputs.personality]
+    const effectiveMonthlySavings = inputs.monthly - monthlyLeakage
     const nominal = [inputs.savings]
+    const baseline = [inputs.savings]
+    let cumulativeMedicalCosts = 0
+    let medicalCostsTo80 = 0
+    let habitLeakageImpact = 0
+
     for (let year = 1; year <= years; year += 1) {
-      nominal.push(nominal[year - 1] * 1.06 + inputs.monthly * 12)
+      const age = inputs.age + year
+      const medicalCost = age >= 60 ? healthCosts[inputs.health] * Math.pow(1.05, age - 60) : 0
+      cumulativeMedicalCosts += medicalCost
+      if (age <= 80) medicalCostsTo80 += medicalCost
+      habitLeakageImpact = habitLeakageImpact * 1.06 + monthlyLeakage * 12
+      baseline.push(baseline[year - 1] * 1.06 + effectiveMonthlySavings * 12)
+      nominal.push(Math.max(0, nominal[year - 1] * 1.06 + effectiveMonthlySavings * 12 - medicalCost))
     }
+
     const real = nominal.map((amount, index) => amount / Math.pow(1.025, index))
     const retirementIndex = Math.min(Math.max(0, inputs.retirementAge - inputs.age), years)
     const age80Index = Math.min(Math.max(0, 80 - inputs.age), years)
+    const finalIndex = nominal.length - 1
+    const healthScore = Math.min(99, Math.round(
+      (inputs.health === 'excellent' ? 20 : inputs.health === 'average' ? 45 : 76) + Math.max(0, inputs.age - 50) * 0.35,
+    ))
+
     return {
       labels,
       nominal,
@@ -162,14 +216,36 @@ export function LongevitySimulator() {
       age80: nominal[age80Index],
       age80Real: real[age80Index],
       yearsToRetirement: retirementIndex,
+      cumulativeMedicalCosts,
+      medicalCostsTo80,
+      habitLeakageImpact,
+      wealthRetention: baseline[finalIndex] > 0 ? Math.round((nominal[finalIndex] / baseline[finalIndex]) * 100) : 0,
+      healthScore,
     }
   }, [inputs])
+
+  const incomeGap = inputs.incomeGoal - inputs.monthlyIncome
+  const habitScore = habitScores[inputs.personality]
+  const lifestyleLeakage = savingsLeakage[inputs.personality]
+  const profileStrategies = [
+    inputs.monthlyIncome < inputs.incomeGoal
+      ? t(`Set a quarterly income milestone in ${occupationName.toLowerCase()} and direct half of each raise toward your target.`, `ตั้งเป้าหมายรายได้ทุกไตรมาสในสายงาน${occupationName} และนำรายได้ที่เพิ่มขึ้นครึ่งหนึ่งไปสู่เป้าหมายของคุณ`)
+      : t(`Protect your ${occupationName.toLowerCase()} income with a six-month reserve and schedule an annual compensation review.`, `รักษาความมั่นคงของรายได้ในสายงาน${occupationName} ด้วยเงินสำรอง 6 เดือน และทบทวนค่าตอบแทนทุกปี`),
+    inputs.health === 'at-risk'
+      ? t('Price healthcare coverage before age 60 and build a dedicated medical reserve that grows with care costs.', 'เปรียบเทียบความคุ้มครองสุขภาพก่อนอายุ 60 ปี และสร้างเงินสำรองค่ารักษาที่เติบโตตามค่าใช้จ่าย')
+      : t('Schedule preventive health reviews and reserve a small monthly amount for future care costs.', 'ตรวจสุขภาพเชิงป้องกันตามกำหนด และกันเงินรายเดือนส่วนหนึ่งไว้สำหรับค่าดูแลสุขภาพในอนาคต'),
+    inputs.personality === 'impulse'
+      ? t('Automate savings on payday and add a 24-hour pause before non-essential purchases.', 'ตั้งโอนเงินออมอัตโนมัติในวันเงินเดือนออก และเว้น 24 ชั่วโมงก่อนซื้อของที่ไม่จำเป็น')
+      : inputs.personality === 'aggressive'
+        ? t('Set a risk limit and rebalance on a schedule so long-term goals stay ahead of market swings.', 'กำหนดขีดจำกัดความเสี่ยงและปรับสมดุลพอร์ตตามกำหนด เพื่อให้เป้าหมายระยะยาวไม่ผันผวนตามตลาด')
+        : t('Automate a consistent savings contribution and review your spending plan once each month.', 'ตั้งออมเงินสม่ำเสมอโดยอัตโนมัติ และทบทวนแผนรายจ่ายเดือนละครั้ง'),
+  ]
 
   const chartData = useMemo(() => ({
     labels: projection.labels,
     datasets: [
       {
-        label: t('Total nominal wealth', 'มูลค่าทรัพย์สินตามตัวเลข'),
+        label: t('Health- and habit-adjusted wealth', 'ความมั่งคั่งหลังปรับสุขภาพและพฤติกรรม'),
         data: projection.nominal,
         borderColor: '#22d3ee',
         backgroundColor: (context: { chart: ChartJS }) => {
@@ -311,13 +387,63 @@ export function LongevitySimulator() {
               <div><h2 id="inputs-heading" className="text-base font-semibold text-white">{t('Your starting point', 'ข้อมูลตั้งต้นของคุณ')}</h2><p className="mt-1 text-xs text-slate-500">{t('Adjust your plan in real time', 'ปรับแผนของคุณได้ทันที')}</p></div>
               <span className="rounded-lg border border-white/[0.08] bg-white/[0.035] px-2.5 py-1 text-[10px] font-medium text-slate-400">{t('THB · Thai baht', 'สกุลเงินบาท · THB')}</span>
             </div>
-            <div className="mt-7 flex flex-col gap-7">
-              <InputSlider label={t('Current age', 'อายุปัจจุบัน')} icon={CircleDollarSign} value={inputs.age} min={18} max={65} step={1} suffix={t('years', 'ปี')} onChange={(value) => setInputs((current) => ({ ...current, age: Math.min(value, current.retirementAge - 1) }))} />
-              <InputSlider label={t('Current savings', 'เงินออมปัจจุบัน')} icon={Wallet} value={inputs.savings} min={0} max={5_000_000} step={10_000} suffix={t('THB', 'บาท')} format={(value) => currency.format(value)} onChange={(value) => update('savings', value)} />
-              <InputSlider label={t('Monthly savings', 'เงินออมต่อเดือน')} icon={TrendingUp} value={inputs.monthly} min={0} max={100_000} step={1_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => update('monthly', value)} />
-              <InputSlider label={t('Retirement target age', 'อายุเป้าหมายเกษียณ')} icon={BriefcaseBusiness} value={inputs.retirementAge} min={Math.max(30, inputs.age + 1)} max={75} step={1} suffix={t('years', 'ปี')} onChange={(value) => update('retirementAge', value)} />
+            <div className="mt-5 grid grid-cols-3 gap-1 rounded-xl border border-white/[0.06] bg-black/15 p-1" aria-label={t('Profile steps', 'ขั้นตอนการวิเคราะห์โปรไฟล์')}>
+              {[
+                t('Finances', 'การเงิน'),
+                t('Career', 'อาชีพ'),
+                t('Health & habits', 'สุขภาพและพฤติกรรม'),
+              ].map((step, index) => (
+                <button key={step} type="button" onClick={() => setProfileStep(index)} aria-current={profileStep === index ? 'step' : undefined} className={`rounded-lg px-1.5 py-2 text-[10px] font-medium transition-colors ${profileStep === index ? 'bg-cyan-300/10 text-cyan-200' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className="mr-1 opacity-70">0{index + 1}</span>{step}
+                </button>
+              ))}
             </div>
-            <div className="mt-7 flex items-start gap-2.5 border-t border-white/[0.07] pt-4 text-[11px] leading-5 text-slate-500"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-400/70" aria-hidden="true" /><p>{t('Illustrative estimate assumes 6% annual growth and 2.5% inflation. This is not financial advice.', 'ตัวเลขประมาณการนี้สมมติผลตอบแทนเติบโต 6% ต่อปี และเงินเฟ้อ 2.5% ไม่ใช่คำแนะนำทางการเงิน')}</p></div>
+            <div className="mt-7 flex min-h-[350px] flex-col gap-7">
+              {profileStep === 0 && <>
+                <InputSlider label={t('Current age', 'อายุปัจจุบัน')} icon={CircleDollarSign} value={inputs.age} min={18} max={65} step={1} suffix={t('years', 'ปี')} onChange={(value) => updateInput('age', Math.min(value, inputs.retirementAge - 1))} />
+                <InputSlider label={t('Current savings', 'เงินออมปัจจุบัน')} icon={Wallet} value={inputs.savings} min={0} max={5_000_000} step={10_000} suffix={t('THB', 'บาท')} format={(value) => currency.format(value)} onChange={(value) => updateInput('savings', value)} />
+                <InputSlider label={t('Monthly savings', 'เงินออมต่อเดือน')} icon={TrendingUp} value={inputs.monthly} min={0} max={100_000} step={1_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('monthly', value)} />
+                <InputSlider label={t('Retirement target age', 'อายุเป้าหมายเกษียณ')} icon={BriefcaseBusiness} value={inputs.retirementAge} min={Math.max(30, inputs.age + 1)} max={75} step={1} suffix={t('years', 'ปี')} onChange={(value) => updateInput('retirementAge', value)} />
+              </>}
+              {profileStep === 1 && <>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-300">
+                  <span className="flex items-center gap-2"><BriefcaseBusiness className="size-4 text-slate-500" aria-hidden="true" />{t('Occupation / career track', 'อาชีพ / สายงาน')}</span>
+                  <select value={inputs.occupation} onChange={(event) => updateInput('occupation', event.target.value)} className="rounded-xl border border-white/[0.1] bg-[#111f31] px-3 py-3 text-sm text-white outline-none focus-visible:border-cyan-300/60 focus-visible:ring-2 focus-visible:ring-cyan-300/20">
+                    {['Tech & Engineering', 'Business & Finance', 'Healthcare', 'Creative & Media', 'Freelance/Gig', 'Student', 'Government'].map((occupation) => <option key={occupation} value={occupation}>{t(occupation, occupation === 'Tech & Engineering' ? 'เทคโนโลยีและวิศวกรรม' : occupation === 'Business & Finance' ? 'ธุรกิจและการเงิน' : occupation === 'Healthcare' ? 'สาธารณสุข' : occupation === 'Creative & Media' ? 'งานสร้างสรรค์และสื่อ' : occupation === 'Freelance/Gig' ? 'ฟรีแลนซ์ / งานอิสระ' : occupation === 'Student' ? 'นักเรียน / นักศึกษา' : 'ภาครัฐ')}</option>)}
+                  </select>
+                </label>
+                <InputSlider label={t('Current monthly income', 'รายได้ต่อเดือนปัจจุบัน')} icon={Wallet} value={inputs.monthlyIncome} min={0} max={500_000} step={5_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('monthlyIncome', value)} />
+                <InputSlider label={t('Target monthly income goal', 'เป้าหมายรายได้ต่อเดือน')} icon={TrendingUp} value={inputs.incomeGoal} min={0} max={1_000_000} step={10_000} suffix={t('THB / mo', 'บาท / เดือน')} format={(value) => currency.format(value)} onChange={(value) => updateInput('incomeGoal', value)} />
+                <p className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.035] p-3 text-xs leading-5 text-slate-400">{t('Your income goal gap appears in the analysis after you run your profile.', 'ระบบจะแสดงช่องว่างระหว่างรายได้และเป้าหมายหลังจากวิเคราะห์โปรไฟล์')}</p>
+              </>}
+              {profileStep === 2 && <>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-300">
+                  <span className="flex items-center gap-2"><ShieldCheck className="size-4 text-slate-500" aria-hidden="true" />{t('Current health status', 'สถานะสุขภาพปัจจุบัน')}</span>
+                  <select value={inputs.health} onChange={(event) => updateInput('health', event.target.value as Inputs['health'])} className="rounded-xl border border-white/[0.1] bg-[#111f31] px-3 py-3 text-sm text-white outline-none focus-visible:border-cyan-300/60 focus-visible:ring-2 focus-visible:ring-cyan-300/20">
+                    <option value="excellent">{t('Excellent', 'ดีเยี่ยม')}</option>
+                    <option value="average">{t('Average', 'ปานกลาง')}</option>
+                    <option value="at-risk">{t('At-Risk or Chronic Condition', 'มีความเสี่ยงหรือโรคเรื้อรัง')}</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-300">
+                  <span className="flex items-center gap-2"><CircleDollarSign className="size-4 text-slate-500" aria-hidden="true" />{t('Financial personality', 'บุคลิกภาพทางการเงิน')}</span>
+                  <select value={inputs.personality} onChange={(event) => updateInput('personality', event.target.value as Inputs['personality'])} className="rounded-xl border border-white/[0.1] bg-[#111f31] px-3 py-3 text-sm text-white outline-none focus-visible:border-cyan-300/60 focus-visible:ring-2 focus-visible:ring-cyan-300/20">
+                    <option value="aggressive">{t('Aggressive Investor', 'นักลงทุนเชิงรุก')}</option>
+                    <option value="balanced">{t('Balanced', 'สมดุล')}</option>
+                    <option value="conservative">{t('Conservative Saver', 'ผู้ออมแบบระมัดระวัง')}</option>
+                    <option value="impulse">{t('Impulse Spender', 'ใช้จ่ายตามอารมณ์')}</option>
+                    <option value="health-conscious">{t('Health Conscious', 'ใส่ใจสุขภาพ')}</option>
+                  </select>
+                </label>
+                <p className="rounded-xl border border-violet-300/10 bg-violet-300/[0.035] p-3 text-xs leading-5 text-slate-400">{t('At-risk projections include higher annual medical costs from age 60. Habit patterns also adjust savings leakage.', 'การประเมินความเสี่ยงด้านสุขภาพจะรวมค่ารักษาที่สูงขึ้นตั้งแต่อายุ 60 ปี และปรับการรั่วไหลของเงินออมตามพฤติกรรม')}</p>
+              </>}
+            </div>
+            <div className="mt-6 flex items-center justify-between border-t border-white/[0.07] pt-4">
+              <button type="button" disabled={profileStep === 0} onClick={() => setProfileStep((step) => Math.max(0, step - 1))} className="rounded-lg px-3 py-2 text-xs font-medium text-slate-400 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-30">{t('Back', 'ย้อนกลับ')}</button>
+              <span className="text-[10px] text-slate-600">{t(`Step ${profileStep + 1} of 3`, `ขั้นตอนที่ ${profileStep + 1} จาก 3`)}</span>
+              <button type="button" disabled={profileStep === 2} onClick={() => setProfileStep((step) => Math.min(2, step + 1))} className="inline-flex items-center gap-1 rounded-lg bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-200 transition-colors hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-30">{t('Next', 'ถัดไป')}<ChevronRight className="size-3.5" aria-hidden="true" /></button>
+            </div>
+            <div className="mt-5 flex items-start gap-2.5 border-t border-white/[0.07] pt-4 text-[11px] leading-5 text-slate-500"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-400/70" aria-hidden="true" /><p>{t('Illustrative estimate assumes 6% annual growth and 2.5% inflation. At-risk healthcare costs rise 5% annually after age 60. This is not financial advice.', 'ตัวเลขประมาณการสมมติผลตอบแทนเติบโต 6% ต่อปี เงินเฟ้อ 2.5% และค่ารักษาพยาบาลกรณีมีความเสี่ยงเพิ่มขึ้น 5% ต่อปีหลังอายุ 60 ปี ไม่ใช่คำแนะนำทางการเงิน')}</p></div>
           </section>
 
           <div className="min-w-0 space-y-5">
@@ -325,11 +451,11 @@ export function LongevitySimulator() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div><h2 id="projection-heading" className="text-base font-semibold text-white">{t('Your 100-year wealth journey', 'เส้นทางความมั่งคั่งตลอด 100 ปี')}</h2><p className="mt-1 text-xs text-slate-500">{t('A long view, built one month at a time', 'มองภาพระยะยาว วางแผนทีละเดือน')}</p></div>
                 <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
-                  <span className="flex items-center gap-2 text-slate-300"><span className="h-0.5 w-4 rounded bg-cyan-300" />{t('Nominal wealth', 'มูลค่าทรัพย์สิน')}</span>
+                  <span className="flex items-center gap-2 text-slate-300"><span className="h-0.5 w-4 rounded bg-cyan-300" />{t('Health- and habit-adjusted', 'ปรับตามสุขภาพและพฤติกรรม')}</span>
                   <span className="flex items-center gap-2 text-slate-400"><span className="w-4 border-t-2 border-dashed border-violet-400" />{t('Inflation-adjusted', 'ปรับตามเงินเฟ้อ')}</span>
                 </div>
               </div>
-              <div className="mt-6 h-[255px] w-full sm:h-[300px]" role="img" aria-label={t(`Projected wealth from age ${inputs.age} through age 100. Nominal wealth at age 80 is ${money(projection.age80, language)}; inflation-adjusted value is ${money(projection.age80Real, language)}.`, `ประมาณการความมั่งคั่งตั้งแต่อายุ ${inputs.age} ถึง 100 ปี มูลค่าทรัพย์สินเมื่ออายุ 80 ปีคือ ${money(projection.age80, language)} และมูลค่าที่ปรับตามเงินเฟ้อคือ ${money(projection.age80Real, language)}`)}>
+              <div className="mt-6 h-[255px] w-full sm:h-[300px]" role="img" aria-label={t(`Projected health- and habit-adjusted wealth from age ${inputs.age} through age 100. Projected wealth at age 80 is ${money(projection.age80, language)}; inflation-adjusted value is ${money(projection.age80Real, language)}.`, `ประมาณการความมั่งคั่งที่ปรับตามสุขภาพและพฤติกรรมตั้งแต่อายุ ${inputs.age} ถึง 100 ปี มูลค่าที่คาดการณ์เมื่ออายุ 80 ปีคือ ${money(projection.age80, language)} และมูลค่าที่ปรับตามเงินเฟ้อคือ ${money(projection.age80Real, language)}`)}>
                 <Line data={chartData} options={chartOptions} />
               </div>
             </section>
@@ -338,6 +464,49 @@ export function LongevitySimulator() {
               <MetricCard label={t('Wealth at age 80', 'ความมั่งคั่งเมื่ออายุ 80 ปี')} value={money(projection.age80, language)} detail={t(`${money(projection.age80Real, language)} in today’s money`, `${money(projection.age80Real, language)} ในมูลค่าเงินปัจจุบัน`)} icon={Wallet} tone="violet" />
               <MetricCard label={t('Inflation loss impact', 'ผลกระทบจากเงินเฟ้อ')} value={money(projection.age80 - projection.age80Real, language)} detail={t('Purchasing power difference at age 80', 'ส่วนต่างของกำลังซื้อเมื่ออายุ 80 ปี')} icon={ArrowDownRight} tone="amber" />
             </div>
+            <section className="mt-5 space-y-4" aria-labelledby="deep-analysis-heading" aria-busy={analysisRunning}>
+              <div className="flex flex-col justify-between gap-3 rounded-2xl border border-cyan-300/15 bg-gradient-to-r from-cyan-300/[0.06] via-[#0b1727] to-violet-300/[0.07] p-4 sm:flex-row sm:items-center sm:px-5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200/80">{t('Personalized projection', 'ประมาณการเฉพาะบุคคล')}</p>
+                  <h2 id="deep-analysis-heading" className="mt-1 text-base font-semibold text-white">{t('Deep longevity analysis', 'วิเคราะห์ชีวิตยืนยาวเชิงลึก')}</h2>
+                  <p className="mt-1 text-xs text-slate-400">{analysisComplete ? t('Your profile analysis is ready. Edit inputs to refresh it.', 'วิเคราะห์โปรไฟล์เรียบร้อยแล้ว แก้ไขข้อมูลเพื่อคำนวณใหม่') : t('Run your profile to reveal four tailored financial insights.', 'วิเคราะห์โปรไฟล์เพื่อดูข้อมูลเชิงลึกทางการเงิน 4 ด้าน')}</p>
+                </div>
+                <button type="button" onClick={runAnalysis} disabled={analysisRunning} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-3 text-xs font-semibold text-[#07111f] shadow-[0_0_24px_rgba(34,211,238,0.12)] transition-colors hover:bg-cyan-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-wait disabled:opacity-70">
+                  {analysisRunning ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
+                  {analysisRunning ? t('Analyzing your profile…', 'กำลังวิเคราะห์โปรไฟล์…') : analysisComplete ? t('Run analysis again', 'วิเคราะห์อีกครั้ง') : t('Run Deep Longevity Analysis', 'เริ่มวิเคราะห์ชีวิตยืนยาวเชิงลึก')}
+                </button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                <article className="rounded-2xl border border-cyan-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 text-cyan-200"><span className="grid size-8 place-items-center rounded-lg bg-cyan-300/10"><TrendingUp className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('Income vs Goal Gap Analysis', 'วิเคราะห์ช่องว่างรายได้กับเป้าหมาย')}</h3></div>
+                  <p className="mt-5 text-[10px] font-medium uppercase tracking-wider text-slate-500">{t('Monthly income gap', 'ช่องว่างรายได้ต่อเดือน')}</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight text-white">{analysisComplete ? money(Math.max(0, incomeGap), language) : '—'}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? incomeGap > 0 ? t(`Current ${money(inputs.monthlyIncome, language)} · goal ${money(inputs.incomeGoal, language)}`, `ปัจจุบัน ${money(inputs.monthlyIncome, language)} · เป้าหมาย ${money(inputs.incomeGoal, language)}`) : t('You have reached or exceeded your monthly income goal.', 'คุณบรรลุหรือมีรายได้ถึงเป้าหมายต่อเดือนแล้ว') : t('Run the analysis to calculate your income-to-goal gap.', 'เริ่มวิเคราะห์เพื่อคำนวณช่องว่างระหว่างรายได้กับเป้าหมาย')}</p>
+                  <p className="mt-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">{t('Career track', 'สายอาชีพ')}: <span className="text-slate-300">{occupationName}</span></p>
+                </article>
+                <article className="rounded-2xl border border-rose-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 text-rose-200"><span className="grid size-8 place-items-center rounded-lg bg-rose-300/10"><Activity className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('Health & Medical Cost Risk Index', 'ดัชนีความเสี่ยงสุขภาพและค่ารักษา')}</h3></div>
+                  <p className="mt-5 text-[10px] font-medium uppercase tracking-wider text-slate-500">{t('Health risk score', 'คะแนนความเสี่ยงสุขภาพ')}</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight text-white">{analysisComplete ? `${projection.healthScore} / 100` : '—'}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? t(`Projected medical costs to age 80: ${money(projection.medicalCostsTo80, language)}`, `ประมาณการค่ารักษาสะสมถึงอายุ 80 ปี: ${money(projection.medicalCostsTo80, language)}`) : t('Run the analysis to estimate health costs after age 60.', 'เริ่มวิเคราะห์เพื่อประเมินค่ารักษาหลังอายุ 60 ปี')}</p>
+                  <p className="mt-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">{t('100-year wealth retained vs. same plan without medical costs', 'ความมั่งคั่งที่เหลือเทียบแผนเดียวกันที่ไม่มีค่ารักษาในช่วง 100 ปี')}: <span className="font-semibold text-rose-200">{analysisComplete ? `${projection.wealthRetention}%` : '—'}</span></p>
+                </article>
+                <article className="rounded-2xl border border-violet-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 text-violet-200"><span className="grid size-8 place-items-center rounded-lg bg-violet-300/10"><Wallet className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('Habit Score & Wealth Leakage', 'คะแนนพฤติกรรมและเงินออมที่รั่วไหล')}</h3></div>
+                  <p className="mt-5 text-[10px] font-medium uppercase tracking-wider text-slate-500">{t('Financial habit score', 'คะแนนพฤติกรรมทางการเงิน')}</p>
+                  <p className="mt-1 text-2xl font-semibold tracking-tight text-white">{analysisComplete ? `${habitScore} / 100` : '—'}</p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{analysisComplete ? t(`Modeled savings leakage: ${Math.round(lifestyleLeakage * 100)}% of monthly savings`, `จำลองเงินออมที่รั่วไหล: ${Math.round(lifestyleLeakage * 100)}% ของเงินออมรายเดือน`) : t('Run the analysis to score your financial habits.', 'เริ่มวิเคราะห์เพื่อประเมินพฤติกรรมทางการเงิน')}</p>
+                  <p className="mt-3 border-t border-white/[0.06] pt-3 text-[10px] text-slate-500">{t('Potential wealth impact by age 100', 'ผลกระทบต่อความมั่งคั่งที่อาจเกิดขึ้นเมื่ออายุ 100 ปี')}: <span className="font-semibold text-violet-200">{analysisComplete ? money(projection.habitLeakageImpact, language) : '—'}</span></p>
+                </article>
+                <article className="rounded-2xl border border-amber-300/10 bg-[#0b1727]/85 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 text-amber-200"><span className="grid size-8 place-items-center rounded-lg bg-amber-300/10"><Sparkles className="size-4" aria-hidden="true" /></span><h3 className="text-sm font-semibold text-white">{t('AI Personalized Action Plan', 'แผนปฏิบัติการเฉพาะบุคคล')}</h3></div>
+                  <p className="mt-2 text-[10px] leading-4 text-slate-500">{t('Profile-based simulation · not generated by an AI model', 'คำแนะนำจำลองตามโปรไฟล์ · ไม่ได้สร้างโดยโมเดล AI')}</p>
+                  {analysisComplete ? <ol className="mt-3 flex flex-col gap-2.5">
+                    {profileStrategies.map((strategy, index) => <li key={strategy} className="flex gap-2 text-xs leading-5 text-slate-300"><span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-amber-300/10 text-[10px] font-semibold text-amber-200">{index + 1}</span><span>{strategy}</span></li>)}
+                  </ol> : <p className="mt-3 text-xs leading-5 text-slate-400">{t('Run the analysis to reveal three strategies matched to your career, health, and financial habits.', 'เริ่มวิเคราะห์เพื่อดู 3 กลยุทธ์ที่ปรับตามอาชีพ สุขภาพ และพฤติกรรมการเงินของคุณ')}</p>}
+                </article>
+              </div>
+            </section>
           </div>
         </div>
 
